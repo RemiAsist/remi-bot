@@ -1,33 +1,49 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const venom = require('venom-bot');
+const { Configuration, OpenAIApi } = require('openai');
 
-// Crea el cliente con sesión persistente
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
+const openai = new OpenAIApi(
+  new Configuration({
+    apiKey: process.env.OPENAI_API_KEY,
+  })
+);
+
+venom
+  .create({
+    session: 'remi-bot',
+    multidevice: true,
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-});
+    useChrome: false
+  })
+  .then((client) => start(client))
+  .catch((erro) => {
+    console.log(erro);
+  });
 
-// Muestra el QR en consola
-client.on('qr', (qr) => {
-  qrcode.generate(qr, { small: true });
-  console.log('Escanea el QR para vincular WhatsApp');
-});
+function start(client) {
+  client.onMessage(async (message) => {
+    if (!message.isGroupMsg) {
+      const userPrompt = message.body;
+      try {
+        const response = await openai.createChatCompletion({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: 'Eres Remi, un bot asistente simpático que recuerda tareas y responde como un amigo cercano. Usa emojis de vez en cuando y mantén un tono casual y motivador.',
+            },
+            {
+              role: 'user',
+              content: userPrompt,
+            },
+          ],
+        });
 
-// Mensaje cuando esté listo
-client.on('ready', () => {
-  console.log('✅ Remi está conectado y listo 😎');
-});
-
-// Escucha mensajes entrantes
-client.on('message', async (msg) => {
-  const texto = msg.body.toLowerCase();
-
-  if (texto.includes('hola')) {
-    msg.reply('¡Wena bro! Soy Remi, tu asistente. ¿En qué te ayudo hoy? 😄');
-  }
-});
-
-client.initialize();
+        const gptResponse = response.data.choices[0].message.content;
+        await client.sendText(message.from, gptResponse);
+      } catch (error) {
+        console.error('Error con OpenAI:', error);
+        await client.sendText(message.from, '😓 Uy, algo falló al conectar con ChatGPT.');
+      }
+    }
+  });
+}
